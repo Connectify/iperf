@@ -31,6 +31,7 @@
 #include "cjson.h"
 #include <sys/select.h>
 #include <stddef.h>
+#include <stdint.h>
 
 int readentropy(void *out, size_t outsize);
 
@@ -56,6 +57,12 @@ cJSON* iperf_json_printf(const char *format, ...);
 cJSON * iperf_cJSON_GetObjectItemType(cJSON * j_p, char * item_string, int expected_type);
 
 void iperf_dump_fdset(FILE *fp, const char *str, int nfds, fd_set *fds);
+
+/* CRC32 functions for data integrity validation */
+#define IPERF_CRC32_INIT 0xFFFFFFFF
+uint32_t iperf_crc32(const void *data, size_t len);
+uint32_t iperf_crc32_update(uint32_t crc, const void *data, size_t len);
+uint32_t iperf_crc32_finalize(uint32_t crc);
 
 #ifndef HAVE_DAEMON
 extern int daemon(int nochdir, int noclose);

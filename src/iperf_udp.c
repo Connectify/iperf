@@ -227,6 +227,48 @@ iperf_udp_recv(struct iperf_stream *sp)
 	    sp->jitter += (d - sp->jitter) / 16.0;
 	    first_packet = 0;
 
+	    /* Data integrity validation */
+	    if (sp->test->data_integrity) {
+	        int udp_hdr = sp->test->udp_counters_64bit ?
+	            (int)(sizeof(uint32_t) * 2 + sizeof(uint64_t)) :
+	            (int)(sizeof(uint32_t) * 3);
+	        int integ_off = udp_hdr;
+	        int payload_off = integ_off + 8;
+	        int payload_len = dgram_sz - payload_off;
+
+	        if (payload_len > 0) {
+	            uint32_t recv_seq, recv_crc;
+	            memcpy(&recv_seq, dgram_buf + integ_off, sizeof(recv_seq));
+	            memcpy(&recv_crc, dgram_buf + integ_off + 4, sizeof(recv_crc));
+	            recv_seq = ntohl(recv_seq);
+	            recv_crc = ntohl(recv_crc);
+
+	            uint32_t computed_crc = iperf_crc32(dgram_buf + payload_off, payload_len);
+
+	            if (computed_crc != recv_crc) {
+	                iperf_err(sp->test,
+	                    "DATA INTEGRITY ERROR on stream %d, packet %" PRIu64 ": "
+	                    "CRC mismatch - expected 0x%08x, got 0x%08x",
+	                    sp->socket, pcount, recv_crc, computed_crc);
+	                i_errno = IEDATAINTEGRITY;
+	                sp->test->data_integrity_error = 1;
+	                sp->test->done = 1;
+	                return -1;
+	            }
+	            if (recv_seq != sp->integrity_block_seq) {
+	                iperf_err(sp->test,
+	                    "DATA INTEGRITY ERROR on stream %d, packet %" PRIu64 ": "
+	                    "sequence mismatch - expected %u, got %u",
+	                    sp->socket, pcount, sp->integrity_block_seq, recv_seq);
+	                i_errno = IEDATAINTEGRITY;
+	                sp->test->data_integrity_error = 1;
+	                sp->test->done = 1;
+	                return -1;
+	            }
+	            sp->integrity_block_seq++;
+	        }
+	    }
+
 	    dgram_buf += dgram_sz;
 	    buf_sz -= dgram_sz;
 	}
@@ -314,6 +356,17 @@ iperf_udp_send(struct iperf_stream *sp)
 	    memcpy(dgram_buf, &sec, sizeof(sec));
 	    memcpy(dgram_buf+4, &usec, sizeof(usec));
 	    memcpy(dgram_buf+8, &pcount, sizeof(pcount));
+	}
+
+	/* Write data integrity header after the UDP timestamp/seqnum header */
+	if (sp->test->data_integrity) {
+	    int hdr_off = sp->test->udp_counters_64bit ?
+	        (int)(sizeof(uint32_t) * 2 + sizeof(uint64_t)) :
+	        (int)(sizeof(uint32_t) * 3);
+	    uint32_t seq = htonl(sp->integrity_block_seq++);
+	    uint32_t crc = htonl(sp->integrity_payload_crc);
+	    memcpy(dgram_buf + hdr_off, &seq, sizeof(seq));
+	    memcpy(dgram_buf + hdr_off + 4, &crc, sizeof(crc));
 	}
 
 	dgram_buf += dgram_sz;

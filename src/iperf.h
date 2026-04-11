@@ -228,6 +228,7 @@ struct iperf_stream
     int       buffer_fd;	/* data to send, file descriptor */
     char      *buffer;		/* data to send, mmapped */
     int       pending_size;     /* pending data to send */
+    int       pending_offset;   /* offset into buffer for next send (partial-send resume) */
     int       diskfile_fd;	/* file to send, file descriptor */
     int	      diskfile_left;	/* remaining file data on disk */
 
@@ -245,6 +246,13 @@ struct iperf_stream
     int64_t   omitted_outoforder_packets;
     int64_t   cnt_error;
     int64_t   omitted_cnt_error;
+
+    /* Data integrity state (block seq + CRC32) */
+    uint32_t  integrity_block_seq;          /* sender: next seq to write; receiver: next expected */
+    uint32_t  integrity_payload_crc;        /* sender: precomputed CRC32 of payload portion */
+    uint32_t  integrity_running_crc;        /* receiver TCP: running CRC32 of current block */
+    int       integrity_block_offset;       /* receiver TCP: bytes received in current block */
+    char      integrity_header_buf[8];      /* receiver TCP: staging for header spanning recv calls */
     uint64_t  target;
 
     struct sockaddr_storage local_addr;
@@ -370,6 +378,8 @@ struct iperf_test
     int       forceflush; /* --forceflush - flushing output at every interval */
     int	      multisend;
     int	      repeating_payload;                /* --repeating-payload */
+    int	      data_integrity;                   /* --data-integrity */
+    int	      data_integrity_error;             /* set when integrity check fails */
     int       timestamps;			/* --timestamps */
     char     *timestamp_format;
     int       mptcp;				/* -m, --mptcp */

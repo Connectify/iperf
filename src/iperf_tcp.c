@@ -75,6 +75,78 @@ iperf_tcp_recv(struct iperf_stream *sp)
     if (sp->test->state == TEST_RUNNING) {
 	      sp->result->bytes_received += r;
 	      sp->result->bytes_received_this_interval += r;
+
+        /* Data integrity validation */
+        if (sp->test->data_integrity && r > 0) {
+            int blksize = sp->settings->blksize;
+            int pos = 0;
+
+            while (pos < r) {
+                int block_remaining = blksize - sp->integrity_block_offset;
+                int chunk = (r - pos < block_remaining) ? (r - pos) : block_remaining;
+
+                /* Process header bytes (offsets 0-7 of each block) */
+                if (sp->integrity_block_offset < 8) {
+                    int hdr_start = sp->integrity_block_offset;
+                    int hdr_bytes = (hdr_start + chunk > 8) ? (8 - hdr_start) : chunk;
+                    memcpy(sp->integrity_header_buf + hdr_start,
+                           sp->buffer + pos, hdr_bytes);
+
+                    /* If there are payload bytes in this chunk (past byte 8), add to CRC */
+                    if (sp->integrity_block_offset + chunk > 8) {
+                        int payload_start = 8 - sp->integrity_block_offset;
+                        if (payload_start < 0) payload_start = 0;
+                        sp->integrity_running_crc = iperf_crc32_update(
+                            sp->integrity_running_crc,
+                            sp->buffer + pos + payload_start,
+                            chunk - payload_start);
+                    }
+                } else {
+                    /* All payload bytes, add to running CRC */
+                    sp->integrity_running_crc = iperf_crc32_update(
+                        sp->integrity_running_crc,
+                        sp->buffer + pos, chunk);
+                }
+
+                sp->integrity_block_offset += chunk;
+                pos += chunk;
+
+                /* Block complete -- validate */
+                if (sp->integrity_block_offset >= blksize) {
+                    uint32_t recv_seq, recv_crc;
+                    memcpy(&recv_seq, sp->integrity_header_buf, sizeof(recv_seq));
+                    memcpy(&recv_crc, sp->integrity_header_buf + 4, sizeof(recv_crc));
+                    recv_seq = ntohl(recv_seq);
+                    recv_crc = ntohl(recv_crc);
+
+                    uint32_t computed_crc = iperf_crc32_finalize(sp->integrity_running_crc);
+
+                    if (computed_crc != recv_crc) {
+                        iperf_err(sp->test,
+                            "DATA INTEGRITY ERROR on stream %d: CRC mismatch in block %u - "
+                            "expected 0x%08x, got 0x%08x",
+                            sp->socket, recv_seq, recv_crc, computed_crc);
+                        i_errno = IEDATAINTEGRITY;
+                        sp->test->data_integrity_error = 1;
+                        sp->test->done = 1;
+                        return -1;
+                    }
+                    if (recv_seq != sp->integrity_block_seq) {
+                        iperf_err(sp->test,
+                            "DATA INTEGRITY ERROR on stream %d: sequence mismatch - "
+                            "expected %u, got %u",
+                            sp->socket, sp->integrity_block_seq, recv_seq);
+                        i_errno = IEDATAINTEGRITY;
+                        sp->test->data_integrity_error = 1;
+                        sp->test->done = 1;
+                        return -1;
+                    }
+                    sp->integrity_block_seq++;
+                    sp->integrity_block_offset = 0;
+                    sp->integrity_running_crc = IPERF_CRC32_INIT;
+                }
+            }
+        }
     }
     else {
 	      if (sp->test->debug)
@@ -94,18 +166,27 @@ iperf_tcp_send(struct iperf_stream *sp)
 {
     int r;
 
-    if (!sp->pending_size)
+    if (!sp->pending_size) {
 	      sp->pending_size = sp->settings->blksize;
+	      sp->pending_offset = 0;
+        if (sp->test->data_integrity) {
+            uint32_t seq = htonl(sp->integrity_block_seq++);
+            uint32_t crc = htonl(sp->integrity_payload_crc);
+            memcpy(sp->buffer, &seq, sizeof(seq));
+            memcpy(sp->buffer + 4, &crc, sizeof(crc));
+        }
+    }
 
     if (sp->test->zerocopy)
-	      r = Nsendfile(sp->buffer_fd, sp->socket, sp->buffer, sp->pending_size);
+	      r = Nsendfile(sp->buffer_fd, sp->socket, sp->pending_offset, sp->pending_size);
     else
-	      r = Nwrite(sp->socket, sp->buffer, sp->pending_size, Ptcp);
+	      r = Nwrite(sp->socket, sp->buffer + sp->pending_offset, sp->pending_size, Ptcp);
 
     if (r < 0)
         return r;
 
     sp->pending_size -= r;
+    sp->pending_offset += r;
     sp->result->bytes_sent += r;
     sp->result->bytes_sent_this_interval += r;
 

@@ -771,7 +771,7 @@ has_sendfile(void)
  */
 
 int
-Nsendfile(int fromfd, int tofd, const char *buf, size_t count)
+Nsendfile(int fromfd, int tofd, off_t start_offset, size_t count)
 {
 #if defined(HAVE_SENDFILE)
     off_t offset;
@@ -783,7 +783,7 @@ Nsendfile(int fromfd, int tofd, const char *buf, size_t count)
 
     nleft = count;
     while (nleft > 0) {
-	offset = count - nleft;
+	offset = start_offset + (count - nleft);
 #ifdef linux
 	r = sendfile(tofd, fromfd, &offset, nleft);
 	if (r > 0)

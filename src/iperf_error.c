@@ -563,6 +563,15 @@ iperf_strerror(int int_errno)
             snprintf(errstr, len, "server test duration expired");
             perr = 1;
             break;
+        case IEDATAINTEGRITY:
+            snprintf(errstr, len, "data integrity check failed - payload corruption or sequence error detected");
+            break;
+        case IEDATAINTEGRITYSKIPRXCOPY:
+            snprintf(errstr, len, "--data-integrity and --skip-rx-copy are mutually exclusive");
+            break;
+        case IEDATAINTEGRITYZEROCOPY:
+            snprintf(errstr, len, "--data-integrity and --zerocopy are mutually exclusive");
+            break;
 	    default:
             snprintf(errstr, len, "int_errno=%d", int_errno);
             perr = 1;
