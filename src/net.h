@@ -39,7 +39,7 @@ int Nread_gro(int fd, char *buf, size_t count, int prot, int *dgram_sz);
 int Nwrite(int fd, const char *buf, size_t count, int prot) /* __attribute__((hot)) */;
 int Nwrite_gso(int fd, const char *buf, size_t count, int prot, uint16_t gso_size);
 int has_sendfile(void);
-int Nsendfile(int fromfd, int tofd, const char *buf, size_t count) /* __attribute__((hot)) */;
+int Nsendfile(int fromfd, int tofd, off_t start_offset, size_t count) /* __attribute__((hot)) */;
 int setnonblocking(int fd, int nonblocking);
 int getsockdomain(int sock);
 int parse_qos(const char *tos);

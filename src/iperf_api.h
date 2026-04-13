@@ -107,6 +107,7 @@ typedef atomic_uint_fast64_t atomic_iperf_size_t;
 #define OPT_JSON_STREAM_FULL_OUTPUT 33
 #define OPT_SERVER_MAX_DURATION 34
 #define OPT_GSRO 35
+#define OPT_DATA_INTEGRITY 36
 
 /* states */
 #define TEST_START 1
@@ -148,6 +149,7 @@ double	iperf_get_test_reporter_interval( struct iperf_test* ipt );
 double	iperf_get_test_stats_interval( struct iperf_test* ipt );
 int	iperf_get_test_num_streams( struct iperf_test* ipt );
 int	iperf_get_test_repeating_payload( struct iperf_test* ipt );
+int	iperf_get_test_data_integrity( struct iperf_test* ipt );
 int	iperf_get_test_timestamps( struct iperf_test* ipt );
 const char* iperf_get_test_timestamp_format( struct iperf_test* ipt );
 int	iperf_get_test_bind_port( struct iperf_test* ipt );
@@ -196,6 +198,7 @@ void	iperf_set_test_server_port( struct iperf_test* ipt, int server_port );
 void	iperf_set_test_socket_bufsize( struct iperf_test* ipt, int socket_bufsize );
 void	iperf_set_test_num_streams( struct iperf_test* ipt, int num_streams );
 void	iperf_set_test_repeating_payload( struct iperf_test* ipt, int repeating_payload );
+void	iperf_set_test_data_integrity( struct iperf_test* ipt, int data_integrity );
 void	iperf_set_test_timestamps( struct iperf_test* ipt, int timestamps );
 void	iperf_set_test_timestamp_format( struct iperf_test*, const char *tf );
 void	iperf_set_test_role( struct iperf_test* ipt, char role );
@@ -445,6 +448,8 @@ enum {
     IECNTLKA = 36,          // Control connection Keepalive period should be larger than the full retry period (interval * count)
     IEMAXSERVERTESTDURATIONEXCEEDED = 37, // Client's duration exceeds server's maximum duration
     IEUNITVAL = 38,         // Invalid unit value or suffix
+    IEDATAINTEGRITYSKIPRXCOPY = 39, // --data-integrity and --skip-rx-copy are mutually exclusive
+    IEDATAINTEGRITYZEROCOPY = 40,   // --data-integrity and --zerocopy are mutually exclusive
     /* Test errors */
     IENEWTEST = 100,        // Unable to create a new test (check perror)
     IEINITTEST = 101,       // Test initialization failed (check perror)
@@ -506,6 +511,7 @@ enum {
     IESETCNTLKACOUNT = 158,    // Unable to set/get socket keepalive TCP number of retries (TCP_KEEPCNT) option
     IEPTHREADSIGMASK=159,      // Unable to initialize sub thread signal mask (check perror)
     IESERVERTESTDURATIONEXPIRED = 160, // Server test duration expired
+    IEDATAINTEGRITY = 161,  // Data integrity check failed - payload corruption or sequence error
     /* Stream errors */
     IECREATESTREAM = 200,   // Unable to create a new stream (check herror/perror)
     IEINITSTREAM = 201,     // Unable to initialize stream (check herror/perror)

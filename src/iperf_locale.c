@@ -222,6 +222,8 @@ const char usage_longstr[] = "Usage: iperf3 [-s|-c host] [options]\n"
                            "  --gsro                    enable UDP GSO/GRO on both client and server (client-only option)\n"
                            "  --repeating-payload       use repeating pattern in payload, instead of\n"
                            "                            randomized payload (like in iperf2)\n"
+                           "  --data-integrity          validate data integrity using per-block sequence\n"
+                           "                            numbers and CRC32 digests (incompatible with --skip-rx-copy)\n"
 #if defined(HAVE_DONT_FRAGMENT)
                            "  --dont-fragment           set IPv4 Don't Fragment flag\n"
 #endif /* HAVE_DONT_FRAGMENT */

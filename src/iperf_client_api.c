@@ -855,6 +855,11 @@ iperf_run_client(struct iperf_test * test)
 
     iflush(test);
 
+    if (test->data_integrity_error) {
+	i_errno = IEDATAINTEGRITY;
+	return -1;
+    }
+
     return 0;
 
   cleanup_and_fail:
