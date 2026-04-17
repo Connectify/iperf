@@ -145,6 +145,9 @@ iperf_strerror(int int_errno)
 	case IEBADPORT:
 	    snprintf(errstr, len, "port number must be between 1 and 65535 inclusive");
 	    break;
+        case IEDATAINTEGRITYZEROCOPY:
+            snprintf(errstr, len, "--data-integrity and --zerocopy are mutually exclusive");
+            break;
         case IEMSS:
             snprintf(errstr, len, "TCP MSS too large (maximum = %d bytes)", MAX_MSS);
             break;
@@ -184,6 +187,9 @@ iperf_strerror(int int_errno)
             break;
         case IEAUTHTEST:
             snprintf(errstr, len, "test authorization failed");
+            break;
+        case IEDATAINTEGRITY:
+            snprintf(errstr, len, "data integrity check failed - payload corruption or sequence error detected");
             break;
         case IELISTEN:
             snprintf(errstr, len, "unable to start listener for connections");

@@ -244,6 +244,12 @@ iperf_get_test_repeating_payload(struct iperf_test *ipt)
 }
 
 int
+iperf_get_test_data_integrity(struct iperf_test *ipt)
+{
+    return ipt->data_integrity;
+}
+
+int
 iperf_get_test_server_port(struct iperf_test *ipt)
 {
     return ipt->server_port;
@@ -454,6 +460,12 @@ void
 iperf_set_test_repeating_payload(struct iperf_test *ipt, int repeating_payload)
 {
     ipt->repeating_payload = repeating_payload;
+}
+
+void
+iperf_set_test_data_integrity(struct iperf_test *ipt, int data_integrity)
+{
+    ipt->data_integrity = data_integrity;
 }
 
 static void
@@ -809,6 +821,7 @@ iperf_parse_arguments(struct iperf_test *test, int argc, char **argv)
         {"omit", required_argument, NULL, 'O'},
         {"file", required_argument, NULL, 'F'},
         {"repeating-payload", no_argument, NULL, OPT_REPEATING_PAYLOAD},
+        {"data-integrity", no_argument, NULL, OPT_DATA_INTEGRITY},
 #if defined(HAVE_CPU_AFFINITY)
         {"affinity", required_argument, NULL, 'A'},
 #endif /* HAVE_CPU_AFFINITY */
@@ -1118,6 +1131,10 @@ iperf_parse_arguments(struct iperf_test *test, int argc, char **argv)
                 test->repeating_payload = 1;
                 client_flag = 1;
                 break;
+            case OPT_DATA_INTEGRITY:
+                test->data_integrity = 1;
+                client_flag = 1;
+                break;
             case 'O':
                 test->omit = atoi(optarg);
                 if (test->omit < 0 || test->omit > 60) {
@@ -1338,6 +1355,15 @@ iperf_parse_arguments(struct iperf_test *test, int argc, char **argv)
         return -1;
     }
 
+    /* --data-integrity is incompatible with --zerocopy (-Z).
+     * sendfile() references page cache pages directly; the integrity
+     * header written via mmap is overwritten before the kernel
+     * transmits the previous block, causing sequence/CRC mismatches. */
+    if (test->data_integrity && test->zerocopy) {
+        i_errno = IEDATAINTEGRITYZEROCOPY;
+        return -1;
+    }
+
     /* For subsequent calls to getopt */
 #ifdef __APPLE__
     optreset = 1;
@@ -1475,7 +1501,8 @@ iperf_recv(struct iperf_test *test, fd_set *read_setP)
     SLIST_FOREACH(sp, &test->streams, streams) {
 	if (FD_ISSET(sp->socket, read_setP) && !sp->sender) {
 	    if ((r = sp->rcv(sp)) < 0) {
-		i_errno = IESTREAMREAD;
+		if (i_errno != IEDATAINTEGRITY)
+		    i_errno = IESTREAMREAD;
 		return r;
 	    }
 	    test->bytes_received += r;
@@ -1729,6 +1756,8 @@ send_parameters(struct iperf_test *test)
 	    cJSON_AddNumberToObject(j, "udp_counters_64bit", iperf_get_test_udp_counters_64bit(test));
 	if (test->repeating_payload)
 	    cJSON_AddNumberToObject(j, "repeating_payload", test->repeating_payload);
+	if (test->data_integrity)
+	    cJSON_AddNumberToObject(j, "data_integrity", test->data_integrity);
 #if defined(HAVE_SSL)
     if (test->settings->client_username && test->settings->client_password && test->settings->client_rsa_pubkey){
         encode_auth_setting(test->settings->client_username, test->settings->client_password, test->settings->client_rsa_pubkey, &test->settings->authtoken);
@@ -1827,6 +1856,8 @@ get_parameters(struct iperf_test *test)
 	    iperf_set_test_udp_counters_64bit(test, 1);
 	if ((j_p = cJSON_GetObjectItem(j, "repeating_payload")) != NULL)
 	    test->repeating_payload = 1;
+	if ((j_p = cJSON_GetObjectItem(j, "data_integrity")) != NULL)
+	    test->data_integrity = 1;
 #if defined(HAVE_SSL)
 	if ((j_p = cJSON_GetObjectItem(j, "authtoken")) != NULL)
         test->settings->authtoken = strdup(j_p->valuestring);
@@ -1900,6 +1931,9 @@ send_results(struct iperf_test *test)
         free(output);
 	    }
 	}
+
+	if (test->data_integrity_error)
+	    cJSON_AddTrueToObject(j, "data_integrity_error");
 
 	j_streams = cJSON_CreateArray();
 	if (j_streams == NULL) {
@@ -2102,6 +2136,12 @@ get_results(struct iperf_test *test)
 	j_remote_congestion_used = cJSON_GetObjectItem(j, "congestion_used");
 	if (j_remote_congestion_used != NULL) {
 	    test->remote_congestion_used = strdup(j_remote_congestion_used->valuestring);
+	}
+
+	if (cJSON_GetObjectItem(j, "data_integrity_error") != NULL) {
+	    test->data_integrity_error = 1;
+	    i_errno = IEDATAINTEGRITY;
+	    iperf_err(test, "data integrity error reported by remote side");
 	}
 
 	cJSON_Delete(j);
@@ -2307,6 +2347,8 @@ iperf_defaults(struct iperf_test *testp)
     testp->ctrl_sck = -1;
     testp->prot_listener = -1;
     testp->other_side_has_retransmits = 0;
+    testp->data_integrity = 0;
+    testp->data_integrity_error = 0;
 
     testp->stats_callback = iperf_stats_callback;
     testp->reporter_callback = iperf_reporter_callback;
@@ -2552,6 +2594,9 @@ iperf_reset_test(struct iperf_test *test)
     test->role = 's';
     test->mode = RECEIVER;
     test->sender_has_retransmits = 0;
+    test->repeating_payload = 0;
+    test->data_integrity = 0;
+    test->data_integrity_error = 0;
     set_protocol(test, Ptcp);
     test->omit = OMIT;
     test->duration = DURATION;
@@ -3638,6 +3683,8 @@ iperf_new_stream(struct iperf_test *test, int s, int sender)
     sp->sender = sender;
     sp->test = test;
     sp->settings = test->settings;
+    sp->pending_size = 0;
+    sp->pending_offset = 0;
     sp->result = (struct iperf_stream_result *) malloc(sizeof(struct iperf_stream_result));
     if (!sp->result) {
         free(sp);
@@ -3703,6 +3750,32 @@ iperf_new_stream(struct iperf_test *test, int s, int sender)
         fill_with_repeating_pattern(sp->buffer, test->settings->blksize);
     else
         ret = readentropy(sp->buffer, test->settings->blksize);
+
+    /* Initialize data integrity state */
+    if (test->data_integrity) {
+        sp->integrity_block_seq = 0;
+        sp->integrity_block_offset = 0;
+        sp->integrity_running_crc = IPERF_CRC32_INIT;
+        memset(sp->integrity_header_buf, 0, sizeof(sp->integrity_header_buf));
+
+        if (sender) {
+            /* Precompute CRC32 of the payload portion (constant across all blocks) */
+            if (test->protocol->id == Pudp) {
+                int udp_hdr = test->udp_counters_64bit ?
+                    (int)(sizeof(uint32_t) * 2 + sizeof(uint64_t)) :
+                    (int)(sizeof(uint32_t) * 3);
+                int payload_off = udp_hdr + 8;
+                sp->integrity_payload_crc = iperf_crc32(
+                    sp->buffer + payload_off,
+                    test->settings->blksize - payload_off);
+            } else {
+                /* TCP: CRC covers bytes 8..blksize-1 */
+                sp->integrity_payload_crc = iperf_crc32(
+                    sp->buffer + 8,
+                    test->settings->blksize - 8);
+            }
+        }
+    }
 
     if ((ret < 0) || (iperf_init_stream(sp, test) < 0)) {
         close(sp->buffer_fd);
@@ -3826,6 +3899,7 @@ diskfile_send(struct iperf_stream *sp)
 	memcpy(sp->buffer,
 	       sp->buffer + (sp->test->settings->blksize - sp->diskfile_left),
 	       sp->diskfile_left);
+	sp->pending_offset = 0;  /* data slid to front of buffer */
 	if (sp->test->debug)
 	    printf("Shifting %d bytes by %d\n", sp->diskfile_left, (sp->test->settings->blksize - sp->diskfile_left));
     }

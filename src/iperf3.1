@@ -365,7 +365,16 @@ It might help to test and reveal problems in networking gear with hardware
 compression (including some WiFi access points), where iperf2 and iperf3
 perform differently, just based on payload entropy.
 .TP
-.BR --username " \fIusername\fR" 
+.BR --data-integrity
+Enable data integrity validation on the receiving side.
+Each block includes a sequence number and CRC32 digest.
+The receiver validates every block's CRC32 and sequence number.
+If corruption is detected, the test aborts immediately with an error
+message showing the stream, block sequence, expected value, and actual value.
+Incompatible with
+.BR --zerocopy .
+.TP
+.BR --username " \fIusername\fR"
 username to use for authentication to the iperf server (if built with
 OpenSSL support).
 The password will be prompted for interactively when the test is run.  Note,

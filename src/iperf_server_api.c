@@ -437,6 +437,36 @@ iperf_run_server(struct iperf_test *test)
 
     while (test->state != IPERF_DONE) {
 
+        /* Check if a data integrity error was detected by a worker thread */
+        if (test->data_integrity_error) {
+            int err;
+            i_errno = IEDATAINTEGRITY;
+            if (iperf_set_send_state(test, SERVER_ERROR) != 0) {
+                cleanup_server(test);
+                return -1;
+            }
+
+            err = htonl(i_errno);
+            if (Nwrite(test->ctrl_sck, (char*) &err, sizeof(err), Ptcp) < 0) {
+                cleanup_server(test);
+                i_errno = IECTRLWRITE;
+                return -1;
+            }
+
+            err = 0;
+            if (Nwrite(test->ctrl_sck, (char*) &err, sizeof(err), Ptcp) < 0) {
+                cleanup_server(test);
+                i_errno = IECTRLWRITE;
+                return -1;
+            }
+
+            /* Prevent cleanup_server from sending a duplicate SERVER_ERROR */
+            i_errno = IENONE;
+            cleanup_server(test);
+            i_errno = IEDATAINTEGRITY;
+            return -1;
+        }
+
         memcpy(&read_set, &test->read_set, sizeof(fd_set));
         memcpy(&write_set, &test->write_set, sizeof(fd_set));
 
@@ -667,9 +697,14 @@ iperf_run_server(struct iperf_test *test)
 
     iflush(test);
 
-    if (test->server_affinity != -1) 
+    if (test->server_affinity != -1)
 	if (iperf_clearaffinity(test) != 0)
 	    return -1;
+
+    if (test->data_integrity_error) {
+	i_errno = IEDATAINTEGRITY;
+	return -1;
+    }
 
     return 0;
 }

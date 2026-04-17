@@ -50,6 +50,8 @@
 #include "iperf.h"
 #include "iperf_api.h"
 
+#include <stdint.h>
+
 /*
  * Read entropy from /dev/urandom
  * Errors are fatal.
@@ -565,3 +567,55 @@ getline(char **buf, size_t *bufsiz, FILE *fp)
 }
 
 #endif
+
+/*
+ * CRC32 implementation for data integrity validation.
+ * Uses the standard CRC32 polynomial (0xEDB88320), same as zlib/gzip.
+ */
+static uint32_t crc32_table[256];
+static int crc32_table_initialized = 0;
+
+static void
+iperf_crc32_init_table(void)
+{
+    uint32_t i, j, crc;
+
+    for (i = 0; i < 256; i++) {
+        crc = i;
+        for (j = 0; j < 8; j++) {
+            if (crc & 1)
+                crc = (crc >> 1) ^ 0xEDB88320;
+            else
+                crc >>= 1;
+        }
+        crc32_table[i] = crc;
+    }
+    crc32_table_initialized = 1;
+}
+
+uint32_t
+iperf_crc32_update(uint32_t crc, const void *data, size_t len)
+{
+    const uint8_t *buf = (const uint8_t *)data;
+    size_t i;
+
+    if (!crc32_table_initialized)
+        iperf_crc32_init_table();
+
+    for (i = 0; i < len; i++)
+        crc = (crc >> 8) ^ crc32_table[(crc ^ buf[i]) & 0xFF];
+
+    return crc;
+}
+
+uint32_t
+iperf_crc32_finalize(uint32_t crc)
+{
+    return crc ^ 0xFFFFFFFF;
+}
+
+uint32_t
+iperf_crc32(const void *data, size_t len)
+{
+    return iperf_crc32_finalize(iperf_crc32_update(0xFFFFFFFF, data, len));
+}
