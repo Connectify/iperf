@@ -248,11 +248,12 @@ struct iperf_stream
     int64_t   omitted_cnt_error;
 
     /* Data integrity state (block seq + CRC32) */
-    uint32_t  integrity_block_seq;          /* sender: next seq to write; receiver: next expected */
-    uint32_t  integrity_payload_crc;        /* sender: precomputed CRC32 of payload portion */
-    uint32_t  integrity_running_crc;        /* receiver TCP: running CRC32 of current block */
-    int       integrity_block_offset;       /* receiver TCP: bytes received in current block */
-    char      integrity_header_buf[8];      /* receiver TCP: staging for header spanning recv calls */
+    uint32_t  integrity_block_seq;          /* TCP sender: next seq to write; TCP receiver: next expected */
+    uint32_t  integrity_payload_crc;        /* TCP sender: precomputed CRC32 of (constant) payload portion */
+    uint32_t  integrity_running_crc;        /* TCP receiver: running CRC32 of current block */
+    int       integrity_block_offset;       /* TCP receiver: bytes received in current block */
+    char      integrity_header_buf[8];      /* TCP receiver: staging for header spanning recv calls */
+    int64_t   integrity_errors;             /* UDP receiver: count of corrupt/misnumbered datagrams */
     uint64_t  target;
 
     struct sockaddr_storage local_addr;

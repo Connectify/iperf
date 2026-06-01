@@ -5,12 +5,21 @@
 #   1. Corruption injected by a proxy is detected (non-zero exit + error message)
 #   2. A clean run succeeds with no errors
 #   3. Incompatible options (--data-integrity + --skip-rx-copy) are rejected
+#   4. The flag does not persist across server resets
+#   5/6. The client exits nonzero when either side detects TCP corruption
+#   7. (UDP) packet loss is NOT reported as a data integrity error
+#   8. (UDP) payload corruption is counted and reported, but is not fatal
+#
+# Tests 1-6 exercise TCP (reliable stream -> corruption aborts the test).
+# Tests 7-8 exercise UDP, where loss/reorder are expected and validation is
+# per-datagram: anomalies are counted and reported, never aborted.
 #
 
 set -u
 
 IPERF3=./src/iperf3
 PROXY=./corrupt_proxy.py
+UDP_PROXY=./udp_proxy.py
 SERVER_PORT=5301
 PROXY_PORT=5302
 RESULT=0
@@ -194,6 +203,91 @@ if [ $CLIENT_RC -ne 0 ]; then
     echo "PASS: client exited nonzero (rc=$CLIENT_RC) when server detected integrity error"
 else
     echo "FAIL: client exited 0 despite server-side data integrity error"
+    echo "Output: $OUTPUT"
+    RESULT=1
+fi
+
+echo ""
+echo "=== Test 7: UDP packet loss is not reported as a data integrity error ==="
+# Reverse mode (server sends, client receives) so the CLIENT is the receiver
+# and reports the integrity result in its own JSON.  The proxy drops ~1/25 of
+# the data datagrams.  The old monotonic-sequence check would have aborted on
+# the first lost datagram; the per-datagram check must instead count those as
+# loss with zero integrity errors.
+SERVER_PORT=5309
+$IPERF3 -s -p $SERVER_PORT -1 >/dev/null 2>&1 &
+SERVER_PID=$!
+wait_for_listener $SERVER_PORT || { RESULT=1; exit 1; }
+
+python3 $UDP_PROXY $((SERVER_PORT + 1)) 127.0.0.1 $SERVER_PORT 25 drop >/dev/null 2>&1 &
+PROXY_PID=$!
+wait_for_listener $((SERVER_PORT + 1)) || { RESULT=1; exit 1; }
+
+OUTPUT=$($IPERF3 -c 127.0.0.1 -p $((SERVER_PORT + 1)) --data-integrity -u -b 20M -R -t 3 -J 2>/dev/null)
+CLIENT_RC=$?
+
+kill "$PROXY_PID" 2>/dev/null
+PROXY_PID=""
+wait "$SERVER_PID" 2>/dev/null
+SERVER_PID=""
+
+# Parse the receiver's UDP summary: expect some loss but zero integrity errors.
+READ=$(echo "$OUTPUT" | python3 -c '
+import sys, json
+try:
+    u = json.load(sys.stdin)["end"]["streams"][0]["udp"]
+except Exception as e:
+    print("PARSE_ERROR", e); sys.exit(0)
+print(u.get("lost_packets", -1), u.get("integrity_errors", -1))
+')
+LOST=$(echo "$READ" | awk '{print $1}')
+INTEG=$(echo "$READ" | awk '{print $2}')
+
+if [ $CLIENT_RC -ne 0 ]; then
+    echo "FAIL: client exited nonzero (rc=$CLIENT_RC) on a lossy UDP test"
+    echo "Output: $OUTPUT"
+    RESULT=1
+elif [ "$INTEG" != "0" ]; then
+    echo "FAIL: packet loss was reported as integrity errors (integrity_errors=$INTEG)"
+    RESULT=1
+elif ! [ "$LOST" -gt 0 ] 2>/dev/null; then
+    echo "FAIL: expected nonzero packet loss through the dropping proxy (lost=$LOST)"
+    echo "Output: $OUTPUT"
+    RESULT=1
+else
+    echo "PASS: $LOST datagrams lost, 0 integrity errors (loss not misreported as corruption)"
+fi
+
+echo ""
+echo "=== Test 8: UDP corruption is counted and reported, but not fatal ==="
+# Reverse mode again; the proxy flips a payload byte in ~1/50 data datagrams.
+# The test must run to completion (exit 0) and report the corrupt datagrams in
+# the receiver summary rather than aborting.
+SERVER_PORT=5311
+$IPERF3 -s -p $SERVER_PORT -1 >/dev/null 2>&1 &
+SERVER_PID=$!
+wait_for_listener $SERVER_PORT || { RESULT=1; exit 1; }
+
+python3 $UDP_PROXY $((SERVER_PORT + 1)) 127.0.0.1 $SERVER_PORT 50 corrupt >/dev/null 2>&1 &
+PROXY_PID=$!
+wait_for_listener $((SERVER_PORT + 1)) || { RESULT=1; exit 1; }
+
+OUTPUT=$($IPERF3 -c 127.0.0.1 -p $((SERVER_PORT + 1)) --data-integrity -u -b 20M -R -t 3 2>&1)
+CLIENT_RC=$?
+
+kill "$PROXY_PID" 2>/dev/null
+PROXY_PID=""
+wait "$SERVER_PID" 2>/dev/null
+SERVER_PID=""
+
+if [ $CLIENT_RC -ne 0 ]; then
+    echo "FAIL: UDP corruption was fatal (rc=$CLIENT_RC); it should be counted, not aborted"
+    echo "Output: $OUTPUT"
+    RESULT=1
+elif echo "$OUTPUT" | grep -q "failed data integrity validation"; then
+    echo "PASS: corrupt datagrams reported in summary, test completed (rc=0)"
+else
+    echo "FAIL: corruption through proxy was not reported in the summary"
     echo "Output: $OUTPUT"
     RESULT=1
 fi

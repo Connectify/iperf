@@ -227,12 +227,20 @@ iperf_udp_recv(struct iperf_stream *sp)
 	    sp->jitter += (d - sp->jitter) / 16.0;
 	    first_packet = 0;
 
-	    /* Data integrity validation */
+	    /* Data integrity validation (see iperf_udp_send for the wire layout).
+	     *
+	     * Each datagram is validated on its own terms: the CRC covers this
+	     * packet's own header and payload, and the embedded sequence number is
+	     * compared against this datagram's UDP sequence number.  Because the
+	     * check never refers to any other packet, it is immune to the loss,
+	     * reordering, and duplication that are normal for UDP -- those are
+	     * accounted for above as loss / out-of-order, not as corruption.  A
+	     * detected corruption is counted and reported in the summary, never
+	     * fatal to the test. */
 	    if (sp->test->data_integrity) {
-	        int udp_hdr = sp->test->udp_counters_64bit ?
+	        int integ_off = sp->test->udp_counters_64bit ?
 	            (int)(sizeof(uint32_t) * 2 + sizeof(uint64_t)) :
 	            (int)(sizeof(uint32_t) * 3);
-	        int integ_off = udp_hdr;
 	        int payload_off = integ_off + 8;
 	        int payload_len = dgram_sz - payload_off;
 
@@ -243,29 +251,31 @@ iperf_udp_recv(struct iperf_stream *sp)
 	            recv_seq = ntohl(recv_seq);
 	            recv_crc = ntohl(recv_crc);
 
-	            uint32_t computed_crc = iperf_crc32(dgram_buf + payload_off, payload_len);
+	            /* CRC over everything except the 4-byte CRC field itself:
+	             * [timestamp + seqnum + integrity seq] followed by [payload].
+	             * The covered bytes vary per datagram (timestamp/seqnum), so a
+	             * stale or duplicated payload no longer carries a valid CRC. */
+	            uint32_t computed_crc = IPERF_CRC32_INIT;
+	            computed_crc = iperf_crc32_update(computed_crc, dgram_buf, integ_off + 4);
+	            computed_crc = iperf_crc32_update(computed_crc, dgram_buf + payload_off, payload_len);
+	            computed_crc = iperf_crc32_finalize(computed_crc);
 
 	            if (computed_crc != recv_crc) {
-	                iperf_err(sp->test,
-	                    "DATA INTEGRITY ERROR on stream %d, packet %" PRIu64 ": "
-	                    "CRC mismatch - expected 0x%08x, got 0x%08x",
-	                    sp->socket, pcount, recv_crc, computed_crc);
-	                i_errno = IEDATAINTEGRITY;
-	                sp->test->data_integrity_error = 1;
-	                sp->test->done = 1;
-	                return -1;
+	                sp->integrity_errors++;
+	                if (test->debug_level >= DEBUG_LEVEL_INFO)
+	                    fprintf(stderr, "DATA INTEGRITY ERROR on stream %d, packet %" PRIu64 ": "
+	                        "CRC mismatch - expected 0x%08x, got 0x%08x\n",
+	                        sp->socket, pcount, recv_crc, computed_crc);
+	            } else if (recv_seq != (uint32_t)pcount) {
+	                /* Payload is intact but the embedded sequence number does
+	                 * not match this datagram's UDP sequence number, i.e. one of
+	                 * the two seq copies was corrupted in flight. */
+	                sp->integrity_errors++;
+	                if (test->debug_level >= DEBUG_LEVEL_INFO)
+	                    fprintf(stderr, "DATA INTEGRITY ERROR on stream %d, packet %" PRIu64 ": "
+	                        "sequence mismatch - embedded seq %u\n",
+	                        sp->socket, pcount, recv_seq);
 	            }
-	            if (recv_seq != sp->integrity_block_seq) {
-	                iperf_err(sp->test,
-	                    "DATA INTEGRITY ERROR on stream %d, packet %" PRIu64 ": "
-	                    "sequence mismatch - expected %u, got %u",
-	                    sp->socket, pcount, sp->integrity_block_seq, recv_seq);
-	                i_errno = IEDATAINTEGRITY;
-	                sp->test->data_integrity_error = 1;
-	                sp->test->done = 1;
-	                return -1;
-	            }
-	            sp->integrity_block_seq++;
 	        }
 	    }
 
@@ -358,15 +368,32 @@ iperf_udp_send(struct iperf_stream *sp)
 	    memcpy(dgram_buf+8, &pcount, sizeof(pcount));
 	}
 
-	/* Write data integrity header after the UDP timestamp/seqnum header */
+	/* Write the data integrity header (sequence number + CRC32) right after
+	 * the UDP timestamp/seqnum header.  Layout per datagram:
+	 *   [sec][usec][pcount]  [integ seq][integ crc]  [payload...]
+	 * The embedded sequence number is this datagram's own UDP sequence number
+	 * so the receiver can validate each datagram independently of loss or
+	 * reordering.  The CRC is computed over this datagram's actual bytes
+	 * (header + seq + payload, excluding the CRC field), which is correct even
+	 * under GSO where datagrams in a batch may carry different payloads. */
 	if (sp->test->data_integrity) {
-	    int hdr_off = sp->test->udp_counters_64bit ?
+	    int integ_off = sp->test->udp_counters_64bit ?
 	        (int)(sizeof(uint32_t) * 2 + sizeof(uint64_t)) :
 	        (int)(sizeof(uint32_t) * 3);
-	    uint32_t seq = htonl(sp->integrity_block_seq++);
-	    uint32_t crc = htonl(sp->integrity_payload_crc);
-	    memcpy(dgram_buf + hdr_off, &seq, sizeof(seq));
-	    memcpy(dgram_buf + hdr_off + 4, &crc, sizeof(crc));
+	    int payload_off = integ_off + 8;
+	    int payload_len = dgram_sz - payload_off;
+
+	    uint32_t seq = htonl((uint32_t)sp->packet_count);
+	    memcpy(dgram_buf + integ_off, &seq, sizeof(seq));
+
+	    if (payload_len > 0) {
+	        uint32_t crc = IPERF_CRC32_INIT;
+	        crc = iperf_crc32_update(crc, dgram_buf, integ_off + 4);
+	        crc = iperf_crc32_update(crc, dgram_buf + payload_off, payload_len);
+	        crc = iperf_crc32_finalize(crc);
+	        crc = htonl(crc);
+	        memcpy(dgram_buf + integ_off + 4, &crc, sizeof(crc));
+	    }
 	}
 
 	dgram_buf += dgram_sz;

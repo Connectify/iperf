@@ -89,6 +89,7 @@ extern const char report_omitted[] ;
 extern const char report_bw_separator[] ;
 extern const char report_outoforder[] ;
 extern const char report_sum_outoforder[] ;
+extern const char report_integrity_errors[] ;
 extern const char report_peer[] ;
 extern const char report_mss_unsupported[] ;
 extern const char report_mss[] ;
