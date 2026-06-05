@@ -261,7 +261,7 @@ iperf_udp_recv(struct iperf_stream *sp)
 	            computed_crc = iperf_crc32_finalize(computed_crc);
 
 	            if (computed_crc != recv_crc) {
-	                sp->integrity_errors++;
+	                sp->data_integrity_errors++;
 	                if (test->debug_level >= DEBUG_LEVEL_INFO)
 	                    fprintf(stderr, "DATA INTEGRITY ERROR on stream %d, packet %" PRIu64 ": "
 	                        "CRC mismatch - expected 0x%08x, got 0x%08x\n",
@@ -270,7 +270,7 @@ iperf_udp_recv(struct iperf_stream *sp)
 	                /* Payload is intact but the embedded sequence number does
 	                 * not match this datagram's UDP sequence number, i.e. one of
 	                 * the two seq copies was corrupted in flight. */
-	                sp->integrity_errors++;
+	                sp->data_integrity_errors++;
 	                if (test->debug_level >= DEBUG_LEVEL_INFO)
 	                    fprintf(stderr, "DATA INTEGRITY ERROR on stream %d, packet %" PRIu64 ": "
 	                        "sequence mismatch - embedded seq %u\n",

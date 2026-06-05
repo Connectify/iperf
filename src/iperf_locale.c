@@ -439,7 +439,7 @@ const char report_outoforder[] =
 const char report_sum_outoforder[] =
 "[SUM]%s %4.1f-%4.1f sec  %"PRIu64" datagrams received out-of-order\n";
 
-const char report_integrity_errors[] =
+const char report_data_integrity_errors[] =
 "[%3d]%s %6.2f-%-6.2f sec  %"PRIu64" datagrams failed data integrity validation\n";
 
 const char report_peer[] =

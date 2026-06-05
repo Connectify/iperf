@@ -548,7 +548,7 @@ own (its CRC32 covers that datagram's header and payload, and its embedded
 sequence number is checked against its UDP sequence number), so delivery
 anomalies are never reported as corruption.  Datagrams that fail validation are
 counted and reported in the summary (field
-.B integrity_errors
+.B data_integrity_errors
 in JSON output); the test is not aborted.
 .IP
 Incompatible with

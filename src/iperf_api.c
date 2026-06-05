@@ -4362,7 +4362,7 @@ iperf_print_results(struct iperf_test *test)
                         int64_t packet_count = sender_packet_count ? sender_packet_count : receiver_packet_count;
                         cJSON *json_udp = iperf_json_printf("socket: %d  start: %f  end: %f  seconds: %f  bytes: %d  bits_per_second: %f  jitter_ms: %f  lost_packets: %d  packets: %d  lost_percent: %f  out_of_order: %d sender: %b", (int64_t) sp->socket, (double) start_time, (double) sender_time, (double) sender_time, (int64_t) bytes_sent, bandwidth * 8, (double) sp->jitter * 1000.0, (int64_t) (sp->cnt_error - sp->omitted_cnt_error), (int64_t) (packet_count - sp->omitted_packet_count), (double) lost_percent, (int64_t) (sp->outoforder_packets - sp->omitted_outoforder_packets), stream_must_be_sender);
                         if (test->data_integrity)
-                            cJSON_AddNumberToObject(json_udp, "data_integrity_errors", (double) sp->integrity_errors);
+                            cJSON_AddNumberToObject(json_udp, "data_integrity_errors", (double) sp->data_integrity_errors);
                         cJSON_AddItemToObject(json_summary_stream, "udp", json_udp);
                     }
                     else {
@@ -4456,8 +4456,8 @@ iperf_print_results(struct iperf_test *test)
                             } else {
                                 iperf_printf(test, report_bw_udp_format_no_omitted_error, sp->socket, mbuf, start_time, receiver_time, ubuf, nbuf, sp->jitter * 1000.0, (receiver_packet_count - receiver_omitted_packet_count), report_receiver);
                             }
-                            if (test->data_integrity && sp->integrity_errors > 0)
-                                iperf_printf(test, report_integrity_errors, sp->socket, mbuf, start_time, receiver_time, (uint64_t) sp->integrity_errors);
+                            if (test->data_integrity && sp->data_integrity_errors > 0)
+                                iperf_printf(test, report_data_integrity_errors, sp->socket, mbuf, start_time, receiver_time, (uint64_t) sp->data_integrity_errors);
                         }
                     }
                 }
@@ -4952,18 +4952,18 @@ iperf_new_stream(struct iperf_test *test, int s, int sender)
 
     /* Initialize data integrity state */
     if (test->data_integrity) {
-        sp->integrity_block_seq = 0;
-        sp->integrity_block_offset = 0;
-        sp->integrity_running_crc = IPERF_CRC32_INIT;
-        sp->integrity_errors = 0;
-        memset(sp->integrity_header_buf, 0, sizeof(sp->integrity_header_buf));
+        sp->data_integrity_block_seq = 0;
+        sp->data_integrity_block_offset = 0;
+        sp->data_integrity_running_crc = IPERF_CRC32_INIT;
+        sp->data_integrity_errors = 0;
+        memset(sp->data_integrity_header_buf, 0, sizeof(sp->data_integrity_header_buf));
 
         if (sender && test->protocol->id != Pudp) {
             /* TCP: the payload is constant across all blocks, so precompute
              * the CRC32 of the payload portion (bytes 8..blksize-1) once.
              * UDP computes its CRC per datagram in iperf_udp_send(), since the
              * covered bytes (timestamp/seqnum) differ from packet to packet. */
-            sp->integrity_payload_crc = iperf_crc32(
+            sp->data_integrity_payload_crc = iperf_crc32(
                 sp->buffer + 8,
                 test->settings->blksize - 8);
         }

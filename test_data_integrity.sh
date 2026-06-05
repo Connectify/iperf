@@ -238,7 +238,7 @@ try:
     u = json.load(sys.stdin)["end"]["streams"][0]["udp"]
 except Exception as e:
     print("PARSE_ERROR", e); sys.exit(0)
-print(u.get("lost_packets", -1), u.get("integrity_errors", -1))
+print(u.get("lost_packets", -1), u.get("data_integrity_errors", -1))
 ')
 LOST=$(echo "$READ" | awk '{print $1}')
 INTEG=$(echo "$READ" | awk '{print $2}')
@@ -248,7 +248,7 @@ if [ $CLIENT_RC -ne 0 ]; then
     echo "Output: $OUTPUT"
     RESULT=1
 elif [ "$INTEG" != "0" ]; then
-    echo "FAIL: packet loss was reported as integrity errors (integrity_errors=$INTEG)"
+    echo "FAIL: packet loss was reported as integrity errors (data_integrity_errors=$INTEG)"
     RESULT=1
 elif ! [ "$LOST" -gt 0 ] 2>/dev/null; then
     echo "FAIL: expected nonzero packet loss through the dropping proxy (lost=$LOST)"
