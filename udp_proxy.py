@@ -73,9 +73,17 @@ def main():
             threading.Thread(target=tcp_relay, args=(up, client_sock), daemon=True).start()
 
     # --- UDP data flow: corrupt or drop ~1/rate data-sized datagrams ---
+    # On loopback iperf3 uses datagrams up to the lo MTU (16k+ on macOS), which
+    # exceeds the default UDP SO_SNDBUF (9216 on macOS) and makes sendto fail
+    # with EMSGSIZE.  Give both sockets generous buffers.
+    BUFSZ = 1 << 20
     down = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    down.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, BUFSZ)
+    down.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, BUFSZ)
     down.bind(("127.0.0.1", listen_port))   # faces the client
     up = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # faces the server
+    up.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, BUFSZ)
+    up.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, BUFSZ)
 
     def mangle(data):
         """Return possibly-corrupted bytes, or None to drop the datagram."""
@@ -96,7 +104,10 @@ def main():
             state["client"] = addr
             out = mangle(data)
             if out is not None:
-                up.sendto(out, (server_host, server_port))
+                try:
+                    up.sendto(out, (server_host, server_port))
+                except OSError:
+                    pass    # treat a failed relay as a dropped datagram
 
     def server_to_client():
         while True:
@@ -106,7 +117,10 @@ def main():
                 break
             out = mangle(data)
             if out is not None and state["client"] is not None:
-                down.sendto(out, state["client"])
+                try:
+                    down.sendto(out, state["client"])
+                except OSError:
+                    pass    # treat a failed relay as a dropped datagram
 
     threading.Thread(target=tcp_server, daemon=True).start()
     threading.Thread(target=client_to_server, daemon=True).start()

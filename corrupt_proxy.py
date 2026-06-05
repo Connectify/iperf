@@ -16,8 +16,16 @@ import threading
 import random
 import sys
 
-def relay(src, dst, corrupt=False, rate=500):
-    """Relay data from src to dst, optionally corrupting bytes."""
+COOKIE_SIZE = 37  # iperf3 stream-setup cookie (must not be corrupted)
+
+def relay(src, dst, corrupt=False, rate=500, skip=0):
+    """Relay data from src to dst, optionally corrupting bytes.
+
+    The first `skip` bytes are always forwarded verbatim: each iperf3 data
+    connection begins with the client sending a COOKIE_SIZE-byte cookie, and
+    corrupting it makes the server reject the stream, deadlocking the test
+    instead of exercising payload validation.
+    """
     try:
         while True:
             data = src.recv(65536)
@@ -25,7 +33,11 @@ def relay(src, dst, corrupt=False, rate=500):
                 break
             if corrupt:
                 data = bytearray(data)
-                for i in range(len(data)):
+                start = 0
+                if skip > 0:
+                    start = min(skip, len(data))
+                    skip -= start
+                for i in range(start, len(data)):
                     if random.randint(1, rate) == 1:
                         data[i] ^= random.randint(1, 255)
                 data = bytes(data)
@@ -56,8 +68,9 @@ def handle_connection(client_sock, server_host, server_port, conn_num, rate):
     # Subsequent connections are data streams -- corrupt client->server direction.
     is_data = conn_num > 1
 
-    # client -> server: corrupt data streams
-    t1 = threading.Thread(target=relay, args=(client_sock, server_sock, is_data, rate))
+    # client -> server: corrupt data streams, but never the setup cookie
+    t1 = threading.Thread(target=relay,
+                          args=(client_sock, server_sock, is_data, rate, COOKIE_SIZE))
     # server -> client: also corrupt data streams (for reverse mode)
     t2 = threading.Thread(target=relay, args=(server_sock, client_sock, is_data, rate))
     t1.daemon = True

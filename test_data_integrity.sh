@@ -18,6 +18,10 @@
 set -u
 
 IPERF3=./src/iperf3
+# Guard client runs with a timeout (if available) so a wedged test setup
+# fails the test instead of hanging the whole suite.
+TIMEOUT=""
+command -v timeout >/dev/null 2>&1 && TIMEOUT="timeout 30"
 PROXY=./corrupt_proxy.py
 UDP_PROXY=./udp_proxy.py
 SERVER_PORT=5301
@@ -59,7 +63,7 @@ python3 $PROXY $PROXY_PORT 127.0.0.1 $SERVER_PORT 500 >/dev/null 2>&1 &
 PROXY_PID=$!
 wait_for_listener $PROXY_PORT || { RESULT=1; exit 1; }
 
-OUTPUT=$($IPERF3 -c 127.0.0.1 -p $PROXY_PORT --data-integrity -R -t 5 2>&1)
+OUTPUT=$($TIMEOUT $IPERF3 -c 127.0.0.1 -p $PROXY_PORT --data-integrity -R -t 5 2>&1)
 CLIENT_RC=$?
 
 # Clean up this test's processes
@@ -85,7 +89,7 @@ $IPERF3 -s -p $SERVER_PORT -1 >/dev/null 2>&1 &
 SERVER_PID=$!
 wait_for_listener $SERVER_PORT || { RESULT=1; exit 1; }
 
-OUTPUT=$($IPERF3 -c 127.0.0.1 -p $SERVER_PORT --data-integrity -t 2 2>&1)
+OUTPUT=$($TIMEOUT $IPERF3 -c 127.0.0.1 -p $SERVER_PORT --data-integrity -t 2 2>&1)
 CLIENT_RC=$?
 
 wait "$SERVER_PID" 2>/dev/null
@@ -101,7 +105,7 @@ fi
 
 echo ""
 echo "=== Test 3: Incompatible options rejected ==="
-OUTPUT=$($IPERF3 -c 127.0.0.1 --data-integrity --skip-rx-copy 2>&1)
+OUTPUT=$($TIMEOUT $IPERF3 -c 127.0.0.1 --data-integrity --skip-rx-copy 2>&1)
 CLIENT_RC=$?
 
 if [ $CLIENT_RC -ne 0 ]; then
@@ -119,7 +123,7 @@ SERVER_PID=$!
 wait_for_listener $SERVER_PORT || { RESULT=1; exit 1; }
 
 # First client: WITH --data-integrity
-OUTPUT=$($IPERF3 -c 127.0.0.1 -p $SERVER_PORT --data-integrity -t 2 2>&1)
+OUTPUT=$($TIMEOUT $IPERF3 -c 127.0.0.1 -p $SERVER_PORT --data-integrity -t 2 2>&1)
 CLIENT_RC=$?
 if [ $CLIENT_RC -ne 0 ]; then
     echo "FAIL: first client (with --data-integrity) failed unexpectedly (rc=$CLIENT_RC)"
@@ -131,7 +135,7 @@ else
     # Second client: WITHOUT --data-integrity
     # If the bug is present, the server still has data_integrity=1 and will
     # try to verify integrity on normal (non-integrity) data, causing errors.
-    OUTPUT=$($IPERF3 -c 127.0.0.1 -p $SERVER_PORT -t 2 2>&1)
+    OUTPUT=$($TIMEOUT $IPERF3 -c 127.0.0.1 -p $SERVER_PORT -t 2 2>&1)
     CLIENT_RC=$?
 
     kill "$SERVER_PID" 2>/dev/null
@@ -163,7 +167,7 @@ PROXY_PID=$!
 wait_for_listener $((SERVER_PORT + 1)) || { RESULT=1; exit 1; }
 
 # Reverse mode: server sends, client receives and detects corruption
-OUTPUT=$($IPERF3 -c 127.0.0.1 -p $((SERVER_PORT + 1)) --data-integrity -R -t 3 2>&1)
+OUTPUT=$($TIMEOUT $IPERF3 -c 127.0.0.1 -p $((SERVER_PORT + 1)) --data-integrity -R -t 3 2>&1)
 CLIENT_RC=$?
 
 kill "$PROXY_PID" 2>/dev/null
@@ -191,7 +195,7 @@ PROXY_PID=$!
 wait_for_listener $((SERVER_PORT + 1)) || { RESULT=1; exit 1; }
 
 # Normal mode: client sends, server receives and detects corruption
-OUTPUT=$($IPERF3 -c 127.0.0.1 -p $((SERVER_PORT + 1)) --data-integrity -t 3 2>&1)
+OUTPUT=$($TIMEOUT $IPERF3 -c 127.0.0.1 -p $((SERVER_PORT + 1)) --data-integrity -t 3 2>&1)
 CLIENT_RC=$?
 
 kill "$PROXY_PID" 2>/dev/null
@@ -223,7 +227,7 @@ python3 $UDP_PROXY $((SERVER_PORT + 1)) 127.0.0.1 $SERVER_PORT 25 drop >/dev/nul
 PROXY_PID=$!
 wait_for_listener $((SERVER_PORT + 1)) || { RESULT=1; exit 1; }
 
-OUTPUT=$($IPERF3 -c 127.0.0.1 -p $((SERVER_PORT + 1)) --data-integrity -u -b 20M -R -t 3 -J 2>/dev/null)
+OUTPUT=$($TIMEOUT $IPERF3 -c 127.0.0.1 -p $((SERVER_PORT + 1)) --data-integrity -u -b 20M -R -t 3 -J 2>/dev/null)
 CLIENT_RC=$?
 
 kill "$PROXY_PID" 2>/dev/null
@@ -272,7 +276,7 @@ python3 $UDP_PROXY $((SERVER_PORT + 1)) 127.0.0.1 $SERVER_PORT 50 corrupt >/dev/
 PROXY_PID=$!
 wait_for_listener $((SERVER_PORT + 1)) || { RESULT=1; exit 1; }
 
-OUTPUT=$($IPERF3 -c 127.0.0.1 -p $((SERVER_PORT + 1)) --data-integrity -u -b 20M -R -t 3 2>&1)
+OUTPUT=$($TIMEOUT $IPERF3 -c 127.0.0.1 -p $((SERVER_PORT + 1)) --data-integrity -u -b 20M -R -t 3 2>&1)
 CLIENT_RC=$?
 
 kill "$PROXY_PID" 2>/dev/null
