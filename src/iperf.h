@@ -172,6 +172,7 @@ struct iperf_settings
     int       mss;                  /* for TCP MSS */
     int       ttl;                  /* IP TTL option */
     int       tos;                  /* type of service bit */
+    int       tos_ctl_sock;         /* type of service bit for the control socket */
     int       flowlabel;            /* IPv6 flow label */
     iperf_size_t bytes;             /* number of bytes to send */
     iperf_size_t blocks;            /* number of blocks (packets) to send */

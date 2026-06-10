@@ -449,6 +449,10 @@ iperf_connect(struct iperf_test *test)
         return -1;
     }
 
+    /* Tag the client's side of the control socket (--tos-ctl-sock / --dscp-ctl-sock) */
+    if (iperf_set_tos_ctl_sock(test) < 0)
+        return -1;
+
 #if defined (HAVE_TCP_KEEPALIVE)
         // Set Control Connection TCP Keepalive (especially useful for long UDP test sessions)
         if (iperf_set_control_keepalive(test) < 0)

@@ -1151,6 +1151,8 @@ iperf_parse_arguments(struct iperf_test *test, int argc, char **argv)
         {"version6", no_argument, NULL, '6'},
         {"tos", required_argument, NULL, 'S'},
         {"dscp", required_argument, NULL, OPT_DSCP},
+        {"tos-ctl-sock", required_argument, NULL, OPT_TOS_CTL_SOCK},
+        {"dscp-ctl-sock", required_argument, NULL, OPT_DSCP_CTL_SOCK},
 	{"extra-data", required_argument, NULL, OPT_EXTRA_DATA},
 #if defined(HAVE_FLOWLABEL)
         {"flowlabel", required_argument, NULL, 'L'},
@@ -1527,6 +1529,24 @@ iperf_parse_arguments(struct iperf_test *test, int argc, char **argv)
 	    case OPT_DSCP:
                 test->settings->tos = parse_qos(optarg);
 		if(test->settings->tos < 0) {
+			i_errno = IEBADTOS;
+			return -1;
+		}
+		client_flag = 1;
+                break;
+            case OPT_TOS_CTL_SOCK:
+                test->settings->tos_ctl_sock = strtol(optarg, &endptr, 0);
+		if (endptr == optarg ||
+		    test->settings->tos_ctl_sock < 0 ||
+		    test->settings->tos_ctl_sock > 255) {
+		    i_errno = IEBADTOS;
+		    return -1;
+		}
+		client_flag = 1;
+                break;
+	    case OPT_DSCP_CTL_SOCK:
+                test->settings->tos_ctl_sock = parse_qos(optarg);
+		if(test->settings->tos_ctl_sock < 0) {
 			i_errno = IEBADTOS;
 			return -1;
 		}
@@ -2397,6 +2417,11 @@ iperf_exchange_parameters(struct iperf_test *test)
             return -1;
         }
 
+        /* Tag the server's side of the control socket if the client asked for it */
+        if (iperf_set_tos_ctl_sock(test) < 0) {
+            return -1;
+        }
+
 #if defined(HAVE_SSL)
         if (test_is_authorized(test) < 0){
             return -1;
@@ -2505,6 +2530,8 @@ send_parameters(struct iperf_test *test)
 	}
 	if (test->settings->tos)
 	    cJSON_AddNumberToObject(j, "TOS", test->settings->tos);
+	if (test->settings->tos_ctl_sock)
+	    cJSON_AddNumberToObject(j, "tos_ctl_sock", test->settings->tos_ctl_sock);
 	if (test->settings->flowlabel)
 	    cJSON_AddNumberToObject(j, "flowlabel", test->settings->flowlabel);
 	if (test->title)
@@ -2663,6 +2690,8 @@ get_parameters(struct iperf_test *test)
 	    test->settings->burst = j_p->valueint;
 	if ((j_p = iperf_cJSON_GetObjectItemType(j, "TOS", cJSON_Number)) != NULL)
 	    test->settings->tos = j_p->valueint;
+	if ((j_p = iperf_cJSON_GetObjectItemType(j, "tos_ctl_sock", cJSON_Number)) != NULL)
+	    test->settings->tos_ctl_sock = j_p->valueint;
 	if ((j_p = iperf_cJSON_GetObjectItemType(j, "flowlabel", cJSON_Number)) != NULL)
 	    test->settings->flowlabel = j_p->valueint;
 	if ((j_p = iperf_cJSON_GetObjectItemType(j, "title", cJSON_String)) != NULL)
@@ -3660,6 +3689,7 @@ iperf_reset_test(struct iperf_test *test)
     test->settings->burst = 0;
     test->settings->mss = 0;
     test->settings->tos = 0;
+    test->settings->tos_ctl_sock = 0;
     /* Always initialize GSO/GRO fields */
     test->settings->gso_dg_size = 0;
     test->settings->gso_bf_size = GSO_BF_MAX_SIZE;
@@ -5009,6 +5039,41 @@ iperf_common_sockopts(struct iperf_test *test, int s)
 #endif
         } else {
             if (setsockopt(s, IPPROTO_IP, IP_TOS, &opt, sizeof(opt)) < 0) {
+                i_errno = IESETTOS;
+                return -1;
+            }
+        }
+    }
+    return 0;
+}
+
+/**************************************************************************/
+int
+iperf_set_tos_ctl_sock(struct iperf_test *test)
+{
+    int opt;
+
+    /* Set IP TOS on the control socket (--tos-ctl-sock / --dscp-ctl-sock) */
+    if ((opt = test->settings->tos_ctl_sock)) {
+	if (getsockdomain(test->ctrl_sck) == AF_INET6) {
+#ifdef IPV6_TCLASS
+	    if (setsockopt(test->ctrl_sck, IPPROTO_IPV6, IPV6_TCLASS, &opt, sizeof(opt)) < 0) {
+                i_errno = IESETCOS;
+                return -1;
+            }
+
+	    /* A dual-stack socket carrying a mapped-v4 connection takes its IPv4
+	       TOS from IP_TOS, not IPV6_TCLASS. The mapped_v4 flag is not yet set
+	       on the server at param-exchange time, so always attempt it. */
+	    if (setsockopt(test->ctrl_sck, IPPROTO_IP, IP_TOS, &opt, sizeof(opt)) < 0) {
+                /* ignore any failure of v4 TOS in IPv6 case */
+            }
+#else
+            i_errno = IESETCOS;
+            return -1;
+#endif
+        } else {
+            if (setsockopt(test->ctrl_sck, IPPROTO_IP, IP_TOS, &opt, sizeof(opt)) < 0) {
                 i_errno = IESETTOS;
                 return -1;
             }

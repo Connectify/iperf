@@ -207,6 +207,11 @@ const char usage_longstr[] = "Usage: iperf3 [-s|-c host] [options]\n"
                            "  --dscp N or --dscp val    set the IP dscp value, either 0-63 or symbolic.\n"
                            "                            Numeric values can be specified in decimal,\n"
                            "                            octal and hex (see --tos above).\n"
+                           "  --tos-ctl-sock N          set the IP type of service on the control socket,\n"
+                           "                            0-255 (see --tos above). Applied on both sides.\n"
+                           "  --dscp-ctl-sock N or val  set the IP dscp value on the control socket,\n"
+                           "                            either 0-63 or symbolic (see --dscp above).\n"
+                           "                            Applied on both sides.\n"
 #if defined(HAVE_FLOWLABEL)
                            "  -L, --flowlabel N         set the IPv6 flow label (only supported on Linux)\n"
 #endif /* HAVE_FLOWLABEL */

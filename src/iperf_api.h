@@ -108,6 +108,8 @@ typedef atomic_uint_fast64_t atomic_iperf_size_t;
 #define OPT_SERVER_MAX_DURATION 34
 #define OPT_GSRO 35
 #define OPT_DATA_INTEGRITY 36
+#define OPT_TOS_CTL_SOCK 37
+#define OPT_DSCP_CTL_SOCK 38
 
 /* states */
 #define TEST_START 1
@@ -322,6 +324,13 @@ void      iperf_free_stream(struct iperf_stream * sp);
  *
  */
 int       iperf_common_sockopts(struct iperf_test *, int s);
+
+/**
+ * iperf_set_tos_ctl_sock -- apply --tos-ctl-sock / --dscp-ctl-sock to the
+ * control socket (no-op when the option was not given)
+ *
+ */
+int       iperf_set_tos_ctl_sock(struct iperf_test *);
 
 #if defined (HAVE_TCP_KEEPALIVE)
 /**

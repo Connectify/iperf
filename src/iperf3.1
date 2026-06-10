@@ -445,6 +445,23 @@ values can be specified in decimal, octal and hex (see
 .B --tos
 above).
 .TP
+.BR "--tos-ctl-sock " \fIn\fR
+Set the IP type of service bits on the control socket (see
+.B --tos
+above for the accepted forms). The value is exchanged with the server so that
+both sides of the control connection are tagged. Without this option the
+control socket uses the default (untagged) type of service, regardless of
+.B --tos
+/
+.B --dscp
+which only apply to the data streams.
+.TP
+.BR "--dscp-ctl-sock " \fIdscp\fR
+Set the IP DSCP bits on the control socket (see
+.B --dscp
+above for the accepted forms). The value is exchanged with the server so that
+both sides of the control connection are tagged.
+.TP
 .BR -L ", " --flowlabel " \fIn\fR"
 Set the IPv6 flow label (currently only supported on Linux).
 .TP
