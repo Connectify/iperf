@@ -1,6 +1,18 @@
 iperf3 Release Notes
 ====================
 
+Unreleased
+----------
+
+* Notable user-visible changes
+
+    * When `--data-integrity` is used, the UDP `out_of_order` count is
+      now included in the results exchanged between peers, so it is
+      reported on the sender as well as the receiver. Previously a
+      forward (client-to-server) test always showed `out_of_order` as 0
+      on the client, because the receiver's count was never sent back.
+      Without `--data-integrity` the exchanged results are unchanged.
+
 iperf-3.21 2026-04-09
 ---------------------
 
