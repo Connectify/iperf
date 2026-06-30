@@ -2839,6 +2839,10 @@ send_results(struct iperf_test *test)
                     cJSON_AddNumberToObject(j_stream, "omitted_errors", sp->omitted_cnt_error);
 		    cJSON_AddNumberToObject(j_stream, "packets", sp->packet_count);
                     cJSON_AddNumberToObject(j_stream, "omitted_packets", sp->omitted_packet_count);
+                    if (test->data_integrity) {
+                        cJSON_AddNumberToObject(j_stream, "out_of_order", sp->outoforder_packets);
+                        cJSON_AddNumberToObject(j_stream, "omitted_out_of_order", sp->omitted_outoforder_packets);
+                    }
 
 		    iperf_time_diff(&sp->result->start_time, &sp->result->start_time, &temp_time);
 		    start_time = iperf_time_in_secs(&temp_time);
@@ -2888,6 +2892,8 @@ get_results(struct iperf_test *test)
     cJSON *j_omitted_errors;
     cJSON *j_packets;
     cJSON *j_omitted_packets;
+    cJSON *j_out_of_order;
+    cJSON *j_omitted_out_of_order;
     cJSON *j_server_output;
     cJSON *j_start_time, *j_end_time;
     int sid;
@@ -2949,6 +2955,8 @@ get_results(struct iperf_test *test)
                         j_omitted_errors = iperf_cJSON_GetObjectItemType(j_stream, "omitted_errors", cJSON_Number);
 			j_packets = iperf_cJSON_GetObjectItemType(j_stream, "packets", cJSON_Number);
                         j_omitted_packets = iperf_cJSON_GetObjectItemType(j_stream, "omitted_packets", cJSON_Number);
+                        j_out_of_order = iperf_cJSON_GetObjectItemType(j_stream, "out_of_order", cJSON_Number);
+                        j_omitted_out_of_order = iperf_cJSON_GetObjectItemType(j_stream, "omitted_out_of_order", cJSON_Number);
 			j_start_time = iperf_cJSON_GetObjectItemType(j_stream, "start_time", cJSON_Number);
 			j_end_time = iperf_cJSON_GetObjectItemType(j_stream, "end_time", cJSON_Number);
 			if (j_id == NULL || j_bytes == NULL || j_retransmits == NULL || j_jitter == NULL || j_errors == NULL || j_packets == NULL) {
@@ -2978,6 +2986,10 @@ get_results(struct iperf_test *test)
 				if (sp->sender) {
 				    sp->jitter = jitter;
 				    sp->cnt_error = cerror;
+				    if (j_out_of_order != NULL)
+					sp->outoforder_packets = j_out_of_order->valueint;
+				    if (j_omitted_out_of_order != NULL)
+					sp->omitted_outoforder_packets = j_omitted_out_of_order->valueint;
 				    sp->peer_packet_count = pcount;
 				    sp->result->bytes_received = bytes_transferred;
                                     if (j_omitted_packets != NULL) {
